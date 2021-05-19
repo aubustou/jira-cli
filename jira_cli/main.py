@@ -1,7 +1,8 @@
 import json
+from functools import update_wrapper
 from pathlib import Path
 from pprint import pprint
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, Iterator, List, Optional
 
 import atlassian
 import click
@@ -42,7 +43,7 @@ class Colors:
     END = "\033[0m"
 
 
-@click.group()
+@click.group(chain=True)
 def main():
     global JIRA_CONN
     config = json.loads(CONFIGURATION_FILE.read_text())
@@ -68,6 +69,105 @@ def paginate(
         start += limit + 1
 
 
+@main.result_callback()
+def process_commands(processors):
+    """This result callback is invoked with an iterable of all the chained
+    subcommands.  As in this example each subcommand returns a function
+    we can chain them together to feed one into the other, similar to how
+    a pipe on unix works.
+    """
+    # Start with an empty iterable.
+    stream = ()
+
+    # Pipe it through all stream processors.
+    for processor in processors:
+        stream = processor(stream)
+
+    # Evaluate the stream and throw away the items.
+    for _ in stream:
+        pass
+
+
+def processor(f):
+    """Helper decorator to rewrite a function so that it returns another
+    function from it.
+    """
+
+    def new_func(*args, **kwargs):
+        def processor(stream):
+            return f(stream, *args, **kwargs)
+
+        return processor
+
+    return update_wrapper(new_func, f)
+
+
+def generator(f):
+    """Similar to the :func:`processor` but passes through old values
+    unchanged and does not pass through the values as parameter.
+    """
+
+    @processor
+    def new_func(stream, *args, **kwargs):
+        yield from stream
+        yield from f(*args, **kwargs)
+
+    return update_wrapper(new_func, f)
+
+
+COMMENT_TAGS = ["#Summary", "#Details", "#API changes", "#Configuration changes"]
+
+
+def get_summary_from_comment(comment: str) -> str:
+    comment = comment.replace("\xa0", "")
+    is_summary = False
+    summary = []
+    for line in comment.splitlines():
+        if "#Summary" in line:
+            is_summary = True
+            continue
+        elif any(x in line for x in COMMENT_TAGS):
+            break
+        if is_summary and line:
+            summary.append(line)
+    return "\n".join(summary)
+
+
+@main.command()
+@click.option(
+    "--filename",
+    default="output.csv",
+    type=click.Path(writable=True, path_type=Path),
+    help="The format for the filename.",
+    show_default=True,
+)
+@processor
+def create_csv(issues: List[Dict], filename: Path):
+    with filename.open("w", newline="\r\n") as file_:
+        file_.write(";".join(["ticket", "title", "summary", "\r\n"]))
+        for issue in issues:
+            comment = next(
+                (
+                    x["body"]
+                    for x in issue["fields"]["comment"]["comments"]
+                    if "Summary" in x["body"]
+                ),
+                None,
+            )
+            file_.write(
+                ";".join(
+                    [
+                        issue["key"],
+                        issue["fields"]["summary"],
+                        get_summary_from_comment(comment) if comment else "",
+                        "\r\n",
+                    ]
+                )
+            )
+    # print(len(list(issues)))
+    yield issues
+
+
 @main.command()
 @click.option("--issue-number", help="Ticket number", required=False)
 @click.option("--project", help="Name of the project", required=False)
@@ -82,6 +182,9 @@ def paginate(
     flag_value=True,
     help="Return only Summary Comments",
 )
+@click.option("--status", help="Status of the ticket")
+@click.option("--resolution", help="Resolution level of the ticket")
+@generator
 def read(
     issue_number: Optional[str] = None,
     project: Optional[str] = None,
@@ -89,7 +192,9 @@ def read(
     limit: int = 10,
     reduced: bool = False,
     comment_summary: bool = False,
-):
+    status: Optional[str] = None,
+    resolution: Optional[str] = None,
+) -> Iterator:
     issues: List[Dict] = []
     if issue_number:
         issues = [JIRA_CONN.issue(issue_number)]
@@ -118,10 +223,22 @@ def read(
         ]
     else:
         raise RuntimeError("Missing argument")
-    # from pprint import pprint
-    # pprint(issues)
+    if status:
+        issues = [
+            x
+            for x in issues
+            if x["fields"]["status"] and x["fields"]["status"]["name"].lower() == status
+        ]
+    if resolution:
+        issues = [
+            x
+            for x in issues
+            if x["fields"]["resolution"]
+            and x["fields"]["resolution"].get("name", "").lower() == resolution
+        ]
 
     display_issues(issues, reduced, comment_summary)
+    yield from issues
 
 
 def display_issues(
