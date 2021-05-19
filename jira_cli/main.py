@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Dict, List, Optional
+from pprint import pprint
 
 import atlassian
 import click
@@ -55,21 +56,62 @@ def main():
     pass
 
 
+def paginate(
+    func: Callable, key: str = "values", start: int = 0, limit: int = 50, **kwargs
+):
+    results = []
+    while start < 1_000_000:
+        results = func(limit=limit, start=start, **kwargs).get(key)
+        if not results:
+            break
+        yield results
+        start += limit + 1
+
+
 @main.command()
 @click.option("--issue-number", help="Ticket number", required=False)
 @click.option("--project", help="Name of the project", required=False)
+@click.option("--sprint", help="Sprint number", required=False)
 @click.option("--limit", type=int, default=10, help="Max number of issues returned")
 @click.option(
     "--reduced", is_flag=True, flag_value=True, help="Return only number and summary"
 )
+@click.option(
+    "--comment-summary",
+    is_flag=True,
+    flag_value=True,
+    help="Return only Summary Comments",
+)
 def read(
     issue_number: Optional[str] = None,
     project: Optional[str] = None,
+    sprint: Optional[str] = None,
     limit: int = 10,
     reduced: bool = False,
+    comment_summary: bool = False,
 ):
+    issues: List[Dict] = []
     if issue_number:
         issues = [JIRA_CONN.issue(issue_number)]
+    elif sprint and project:
+
+        board_id = next(
+            (x for x in JIRA_CONN.get_all_agile_boards(project_key=project)["values"]),
+            {},
+        ).get("id")
+
+        sprint_id = next(
+            (
+                x
+                for y in paginate(JIRA_CONN.get_all_sprint, limit=50, board_id=board_id)
+                for x in y
+                if sprint in x["name"]
+            )
+        )["id"]
+        for page in paginate(
+            JIRA_CONN.get_sprint_issues, key="issues", sprint_id=sprint_id
+        ):
+            issues.extend(page)
     elif project:
         issues = JIRA_CONN.jql(f"project={project} ORDER BY key DESC", limit=limit)[
             "issues"
@@ -79,8 +121,12 @@ def read(
     # from pprint import pprint
     # pprint(issues)
 
+    display_issues(issues, reduced, comment_summary)
+
+
+def display_issues(issues: List[Dict], reduced: bool = False, comment_summary: bool=False):
     first_issue = True
-    for issue in issues:
+    for issue in reversed(issues):
         if not first_issue:
             click.echo(f"{Colors.GREEN}=============={Colors.END}")
         else:
@@ -91,6 +137,14 @@ def read(
             "key": key,
             "summary": issue["fields"]["summary"],
         }
+
+        if comment_summary:
+            response.update(
+                {
+                    "comment_summary": next((x["body"] for x in issue["fields"]["comment"]["comments"] if "Summary" in x["body"]), "")
+                }
+            )
+
         if not reduced:
             response.update(
                 {
