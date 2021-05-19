@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
-from typing import Callable, Dict, List, Optional
 from pprint import pprint
+from typing import Callable, Dict, List, Optional
 
 import atlassian
 import click
@@ -124,7 +124,9 @@ def read(
     display_issues(issues, reduced, comment_summary)
 
 
-def display_issues(issues: List[Dict], reduced: bool = False, comment_summary: bool=False):
+def display_issues(
+    issues: List[Dict], reduced: bool = False, comment_summary: bool = False
+):
     first_issue = True
     for issue in reversed(issues):
         if not first_issue:
@@ -141,7 +143,14 @@ def display_issues(issues: List[Dict], reduced: bool = False, comment_summary: b
         if comment_summary:
             response.update(
                 {
-                    "comment_summary": next((x["body"] for x in issue["fields"]["comment"]["comments"] if "Summary" in x["body"]), "")
+                    "comment_summary": next(
+                        (
+                            x["body"]
+                            for x in issue["fields"]["comment"]["comments"]
+                            if "Summary" in x["body"]
+                        ),
+                        "",
+                    )
                 }
             )
 
