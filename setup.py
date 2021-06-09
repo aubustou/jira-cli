@@ -12,5 +12,6 @@ setup(
     install_requires=[
         "click==8.0.0",
         "atlassian-python-api==3.10.0",
+        "apischema",
     ],
 )

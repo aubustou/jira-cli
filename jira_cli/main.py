@@ -7,11 +7,14 @@ from typing import Callable, Dict, Iterator, List, Optional
 import atlassian
 import click
 import urllib3
+from atlassian.confluence import Confluence
+from atlassian.jira import Jira
 
 urllib3.disable_warnings()
 
 CONFIGURATION_FILE = Path.home() / ".config" / "jira-cli" / "config.json"
 JIRA_CONN: Optional[atlassian.Jira] = None
+CONFLUENCE_CONN: Optional[atlassian.Confluence] = None
 
 
 class Colors:
@@ -43,17 +46,35 @@ class Colors:
     END = "\033[0m"
 
 
-@click.group(chain=True)
-def main():
+def get_jira_connection() -> Jira:
     global JIRA_CONN
     config = json.loads(CONFIGURATION_FILE.read_text())
 
     JIRA_CONN = atlassian.Jira(
-        url=config["url"],
+        url=config["jira_url"],
         username=config["user"],
         password=config["password"],
         verify_ssl=False,
     )
+    return JIRA_CONN
+
+
+def get_confluence_connection() -> Confluence:
+    global CONFLUENCE_CONN
+    config = json.loads(CONFIGURATION_FILE.read_text())
+
+    CONFLUENCE_CONN = atlassian.Confluence(
+        url=config["confluence_url"],
+        username=config["user"],
+        password=config["password"],
+        verify_ssl=False,
+    )
+    return CONFLUENCE_CONN
+
+
+@click.group(chain=True)
+def main():
+    get_jira_connection()
     pass
 
 
@@ -168,7 +189,23 @@ def create_csv(issues: List[Dict], filename: Path):
     yield issues
 
 
-@main.command()
+def get_sprint(jira_conn: Jira, sprint: str, project: str) -> dict:
+    board_id = next(
+        (x for x in jira_conn.get_all_agile_boards(project_key=project)["values"]),
+        {},
+    ).get("id")
+
+    return next(
+        (
+            x
+            for y in paginate(jira_conn.get_all_sprint, limit=50, board_id=board_id)
+            for x in y
+            if sprint in x["name"]
+        )
+    )
+
+
+@main.command("read")
 @click.option("--issue-number", help="Ticket number", required=False)
 @click.option("--project", help="Name of the project", required=False)
 @click.option("--sprint", help="Sprint number", required=False)
@@ -185,40 +222,34 @@ def create_csv(issues: List[Dict], filename: Path):
 @click.option("--status", help="Status of the ticket")
 @click.option("--resolution", help="Resolution level of the ticket")
 @generator
+def command_read(
+    reduced: bool = False, comment_summary: bool = False, *args, **kwargs
+) -> Iterator:
+    issues = read(JIRA_CONN, *args, **kwargs)
+    display_issues(issues, reduced, comment_summary)
+    yield from issues
+
+
 def read(
+    jira_conn: Jira,
     issue_number: Optional[str] = None,
     project: Optional[str] = None,
     sprint: Optional[str] = None,
     limit: int = 10,
-    reduced: bool = False,
-    comment_summary: bool = False,
     status: Optional[str] = None,
     resolution: Optional[str] = None,
-) -> Iterator:
+) -> List[Dict]:
     issues: List[Dict] = []
     if issue_number:
-        issues = [JIRA_CONN.issue(issue_number)]
+        issues = [jira_conn.issue(issue_number)]
     elif sprint and project:
-
-        board_id = next(
-            (x for x in JIRA_CONN.get_all_agile_boards(project_key=project)["values"]),
-            {},
-        ).get("id")
-
-        sprint_id = next(
-            (
-                x
-                for y in paginate(JIRA_CONN.get_all_sprint, limit=50, board_id=board_id)
-                for x in y
-                if sprint in x["name"]
-            )
-        )["id"]
+        sprint_id = get_sprint(jira_conn, sprint, project)["id"]
         for page in paginate(
-            JIRA_CONN.get_sprint_issues, key="issues", sprint_id=sprint_id
+            jira_conn.get_sprint_issues, key="issues", sprint_id=sprint_id
         ):
             issues.extend(page)
     elif project:
-        issues = JIRA_CONN.jql(f"project={project} ORDER BY key DESC", limit=limit)[
+        issues = jira_conn.jql(f"project={project} ORDER BY key DESC", limit=limit)[
             "issues"
         ]
     else:
@@ -227,7 +258,8 @@ def read(
         issues = [
             x
             for x in issues
-            if x["fields"]["status"] and x["fields"]["status"]["name"].lower() == status
+            if x["fields"]["status"]
+            and x["fields"]["status"]["name"].lower() == status.lower()
         ]
     if resolution:
         issues = [
@@ -237,8 +269,7 @@ def read(
             and x["fields"]["resolution"].get("name", "").lower() == resolution
         ]
 
-    display_issues(issues, reduced, comment_summary)
-    yield from issues
+    return issues
 
 
 def display_issues(
@@ -287,7 +318,7 @@ def display_issues(
                     "summary"
                 ]
         for key, value in response.items():
-            click.echo(f"{Colors.GREEN}{key}:{Colors.END} \n\t{value}\n")
+            click.echo(f"{Colors.GREEN}{key}:{Colors.END} \n\t{value}")
 
 
 if __name__ == "__main__":
