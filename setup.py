@@ -1,8 +1,8 @@
 from setuptools import find_packages, setup
 
 setup(
-    name="jira-cli",
-    version="0.9",
+    name="jira-cli-top-moumoute",
+    version="0.9.1",
     packages=find_packages(),
     author="aubustou",
     author_email="survivalfr@yahoo.fr",
