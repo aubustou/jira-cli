@@ -2,7 +2,7 @@ from setuptools import find_packages, setup
 
 setup(
     name="jira-cli-top-moumoute",
-    version="0.9.1",
+    version="0.9.2",
     packages=find_packages(),
     author="aubustou",
     author_email="survivalfr@yahoo.fr",
