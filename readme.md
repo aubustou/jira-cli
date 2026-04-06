@@ -71,6 +71,31 @@ jira-cli [COMMAND1 [ARGS]...] [COMMAND2 [ARGS]...]...
 Writes a semicolon-delimited CSV with columns: `ticket;title;summary`.
 `summary` is extracted from the `#Summary` section of issue comments.
 
+### `create` — create issues
+
+Create a new JIRA issue, either by CLI arguments or by providing a JSON payload.
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `--project` | str | — | Project key (e.g. `FOO`) |
+| `--summary` | str | — | Issue summary/title |
+| `--description` | str | — | Issue description body |
+| `--issuetype` | str | `Task` | Issue type name |
+| `--priority` | str | — | Priority name |
+| `--assignee` | str | — | Assignee username |
+| `--labels` | str | — | Labels (repeatable) |
+| `--components` | str | — | Component names (repeatable) |
+| `--json` | str | — | Inline JSON with issue fields |
+| `--json-file` | path | — | Path to JSON file with issue fields |
+| `--extra-fields` | str | — | Additional fields as JSON string |
+| `--base64` | flag | false | Decode description from base64 |
+
+**Two input modes** (mutually exclusive):
+- **Arguments:** `--project` and `--summary` are required; other options are optional.
+- **JSON:** provide `--json` (inline) or `--json-file` (path). Shorthand forms like `"project": "FOO"` are auto-normalized to `{"key": "FOO"}`.
+
+The `--base64` flag works in both modes — it decodes the `description` field from base64 before sending to JIRA. Useful for pushing formatted content (e.g. HTML) without shell escaping issues.
+
 ### Examples
 
 ```bash
@@ -88,6 +113,21 @@ jira-cli read --project=FOO --status=Open create_csv --filename=open_issues.csv
 
 # Chain two reads into one CSV
 jira-cli read --project=FOO --sprint="Sprint 42" read --project=BAR --limit=5 create_csv
+
+# Create by arguments
+jira-cli create --project=FOO --summary="Fix login bug" --issuetype=Bug --priority=High
+
+# Create by inline JSON
+jira-cli create --json='{"project":"FOO","summary":"New task","issuetype":"Task"}'
+
+# Create by JSON file
+jira-cli create --json-file=issue.json
+
+# Create with base64-encoded description
+jira-cli create --project=FOO --summary="Formatted" --description="PHA+SGVsbG88L3A+" --base64
+
+# Chain: create and export to CSV
+jira-cli create --project=FOO --summary="Bug" create_csv --filename=new.csv
 ```
 
 ---
@@ -113,6 +153,9 @@ Core query function. Returns raw JIRA API dicts. Requires either `issue_number` 
 
 **`display_issues(issues, reduced=False, comment_summary=False)`**
 Prints issues to stdout with ANSI colors.
+
+**`create_issue_fields(json_str=None, json_file=None, project=None, summary=None, description=None, issuetype="Task", priority=None, assignee=None, labels=(), components=(), extra_fields=None, is_base64=False) -> dict`**
+Builds and validates a JIRA issue fields dict from either JSON or individual arguments. Handles base64 decoding and shorthand normalization.
 
 ---
 

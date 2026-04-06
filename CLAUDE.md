@@ -72,6 +72,29 @@ Consume issues from the stream and write a semicolon-delimited CSV.
 
 CSV columns: `ticket;title;summary` — where `summary` is extracted from the `#Summary` comment tag.
 
+#### `create` (generator)
+Create a new JIRA issue. Supports two mutually exclusive input modes: CLI arguments or JSON.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `--project` | str | None | Project key (e.g. `FOO`) |
+| `--summary` | str | None | Issue summary/title |
+| `--description` | str | None | Issue description body |
+| `--issuetype` | str | `Task` | Issue type name |
+| `--priority` | str | None | Priority name |
+| `--assignee` | str | None | Assignee username |
+| `--labels` | str (multiple) | None | Labels (repeatable) |
+| `--components` | str (multiple) | None | Component names (repeatable) |
+| `--json` | str | None | Inline JSON with issue fields |
+| `--json-file` | Path | None | Path to JSON file with issue fields |
+| `--extra-fields` | str | None | Additional fields as JSON string (merged into fields dict) |
+| `--base64` | flag | False | Decode `description` from base64 (works in both argument and JSON modes) |
+
+**Argument mode:** `--project` + `--summary` required. Cannot be combined with `--json`/`--json-file`.
+**JSON mode:** Shorthand forms auto-normalized (e.g. `"project": "FOO"` → `{"key": "FOO"}`).
+
+The created issue is re-fetched and yielded into the stream, so downstream commands (`create_csv`, etc.) receive a full issue dict.
+
 ---
 
 ### Python Functions (importable)
@@ -122,6 +145,24 @@ generator(f: Callable) -> Callable   # decorator
 ```
 Decorators for building chainable Click commands. `generator` yields into the stream; `processor` consumes and re-yields.
 
+```python
+create_issue_fields(
+    json_str: str | None = None,
+    json_file: Path | None = None,
+    project: str | None = None,
+    summary: str | None = None,
+    description: str | None = None,
+    issuetype: str = "Task",
+    priority: str | None = None,
+    assignee: str | None = None,
+    labels: tuple[str, ...] = (),
+    components: tuple[str, ...] = (),
+    extra_fields: str | None = None,
+    is_base64: bool = False,
+) -> dict
+```
+Builds and validates a JIRA issue `fields` dict from either JSON or individual arguments. Handles base64 decoding of description and shorthand normalization for JSON input. Raises `click.UsageError` on invalid input combinations.
+
 **`jira_cli.model`**
 
 ```python
@@ -165,6 +206,21 @@ jira-cli read --project=FOO --status=Open create_csv --filename=open_issues.csv
 
 # 5. Chain multiple reads into one CSV (both sets flow through the stream)
 jira-cli read --project=FOO --sprint="Sprint 42" read --project=BAR --limit=5 create_csv
+
+# 6. Create by arguments
+jira-cli create --project=FOO --summary="Fix login bug" --issuetype=Bug --priority=High
+
+# 7. Create by inline JSON
+jira-cli create --json='{"project":"FOO","summary":"New task","issuetype":"Task"}'
+
+# 8. Create by JSON file
+jira-cli create --json-file=issue.json
+
+# 9. Create with base64-encoded description (works with both args and JSON)
+jira-cli create --project=FOO --summary="Formatted" --description="PHA+SGVsbG88L3A+" --base64
+
+# 10. Chain: create and export to CSV
+jira-cli create --project=FOO --summary="Bug" create_csv --filename=new.csv
 ```
 
 **Programmatic use:**

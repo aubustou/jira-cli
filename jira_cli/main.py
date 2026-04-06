@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 from collections.abc import Callable, Iterator
 from functools import update_wrapper
@@ -269,6 +270,126 @@ def read(
         ]
 
     return issues
+
+
+def create_issue_fields(
+    json_str: str | None,
+    json_file: Path | None,
+    project: str | None,
+    summary: str | None,
+    description: str | None,
+    issuetype: str,
+    priority: str | None,
+    assignee: str | None,
+    labels: tuple[str, ...],
+    components: tuple[str, ...],
+    extra_fields: str | None,
+    is_base64: bool,
+) -> dict:
+    arg_based = project is not None or summary is not None
+    json_based = json_str is not None or json_file is not None
+
+    if json_based and arg_based:
+        raise click.UsageError(
+            "Cannot combine --json/--json-file with --project/--summary"
+        )
+
+    if json_based:
+        raw = json_str if json_str else Path(json_file).read_text()
+        fields = json.loads(raw)
+    elif arg_based:
+        if not project or not summary:
+            raise click.UsageError("--project and --summary are both required")
+        fields = {
+            "project": {"key": project},
+            "summary": summary,
+            "issuetype": {"name": issuetype},
+        }
+        if description is not None:
+            fields["description"] = description
+        if priority:
+            fields["priority"] = {"name": priority}
+        if assignee:
+            fields["assignee"] = {"name": assignee}
+        if labels:
+            fields["labels"] = list(labels)
+        if components:
+            fields["components"] = [{"name": c} for c in components]
+    else:
+        raise click.UsageError("Provide --json/--json-file or --project and --summary")
+
+    if is_base64 and "description" in fields:
+        fields["description"] = base64.b64decode(fields["description"]).decode("utf-8")
+
+    if extra_fields:
+        fields.update(json.loads(extra_fields))
+
+    # Normalize shorthand forms from JSON input
+    if isinstance(fields.get("project"), str):
+        fields["project"] = {"key": fields["project"]}
+    if isinstance(fields.get("issuetype"), str):
+        fields["issuetype"] = {"name": fields["issuetype"]}
+
+    return fields
+
+
+@main.command("create")
+@click.option("--json", "json_str", default=None, help="Inline JSON with issue fields")
+@click.option(
+    "--json-file",
+    default=None,
+    type=click.Path(exists=True, path_type=Path),
+    help="Path to JSON file with issue fields",
+)
+@click.option("--project", default=None, help="Project key (e.g. FOO)")
+@click.option("--summary", default=None, help="Issue summary/title")
+@click.option("--description", default=None, help="Issue description body")
+@click.option("--issuetype", default="Task", help="Issue type name", show_default=True)
+@click.option("--priority", default=None, help="Priority name")
+@click.option("--assignee", default=None, help="Assignee username")
+@click.option("--labels", multiple=True, help="Labels (repeatable)")
+@click.option("--components", multiple=True, help="Component names (repeatable)")
+@click.option("--extra-fields", default=None, help="Additional fields as JSON string")
+@click.option(
+    "--base64",
+    "is_base64",
+    is_flag=True,
+    help="Decode description from base64",
+)
+@generator
+def command_create(
+    json_str,
+    json_file,
+    project,
+    summary,
+    description,
+    issuetype,
+    priority,
+    assignee,
+    labels,
+    components,
+    extra_fields,
+    is_base64,
+):
+    fields = create_issue_fields(
+        json_str,
+        json_file,
+        project,
+        summary,
+        description,
+        issuetype,
+        priority,
+        assignee,
+        labels,
+        components,
+        extra_fields,
+        is_base64,
+    )
+    result = JIRA_CONN.create_issue(fields=fields)
+    issue_key = result.get("key", result)
+    click.echo(f"Created issue: {issue_key}")
+    full_issue = JIRA_CONN.issue(issue_key)
+    yield full_issue
 
 
 def display_issues(

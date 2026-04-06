@@ -1,11 +1,16 @@
 """Unit tests for jira_cli.main"""
 
+import base64
+import binascii
+import json
 from unittest.mock import MagicMock
 
+import click
 import pytest
 
 from jira_cli.main import (
     create_csv,
+    create_issue_fields,
     generator,
     get_summary_from_comment,
     paginate,
@@ -246,3 +251,194 @@ class TestCreateCsv:
 
         content = out.read_text()
         assert "FOO-3" in content
+
+
+# ---------------------------------------------------------------------------
+# create_issue_fields
+# ---------------------------------------------------------------------------
+
+_DEFAULTS = dict(
+    json_str=None,
+    json_file=None,
+    project=None,
+    summary=None,
+    description=None,
+    issuetype="Task",
+    priority=None,
+    assignee=None,
+    labels=(),
+    components=(),
+    extra_fields=None,
+    is_base64=False,
+)
+
+
+def _fields(**overrides):
+    """Call create_issue_fields with defaults, applying overrides."""
+    return create_issue_fields(**{**_DEFAULTS, **overrides})
+
+
+class TestCreateIssueFieldsFromArgs:
+    def test_minimal_args(self):
+        result = _fields(project="FOO", summary="Title")
+        assert result == {
+            "project": {"key": "FOO"},
+            "summary": "Title",
+            "issuetype": {"name": "Task"},
+        }
+
+    def test_all_args(self):
+        result = _fields(
+            project="FOO",
+            summary="Title",
+            description="Body",
+            issuetype="Bug",
+            priority="High",
+            assignee="alice",
+            labels=("backend", "urgent"),
+            components=("api", "auth"),
+        )
+        assert result["project"] == {"key": "FOO"}
+        assert result["summary"] == "Title"
+        assert result["description"] == "Body"
+        assert result["issuetype"] == {"name": "Bug"}
+        assert result["priority"] == {"name": "High"}
+        assert result["assignee"] == {"name": "alice"}
+        assert result["labels"] == ["backend", "urgent"]
+        assert result["components"] == [{"name": "api"}, {"name": "auth"}]
+
+    def test_missing_project_raises(self):
+        with pytest.raises(click.UsageError, match="--project and --summary"):
+            _fields(summary="Title")
+
+    def test_missing_summary_raises(self):
+        with pytest.raises(click.UsageError, match="--project and --summary"):
+            _fields(project="FOO")
+
+    def test_no_input_raises(self):
+        with pytest.raises(click.UsageError, match="Provide --json"):
+            _fields()
+
+    def test_description_omitted_when_none(self):
+        result = _fields(project="FOO", summary="Title")
+        assert "description" not in result
+
+    def test_optional_fields_omitted_when_empty(self):
+        result = _fields(project="FOO", summary="Title")
+        for key in ("priority", "assignee", "labels", "components"):
+            assert key not in result
+
+
+class TestCreateIssueFieldsFromJson:
+    def test_inline_json(self):
+        payload = json.dumps(
+            {
+                "project": "BAR",
+                "summary": "From JSON",
+                "issuetype": "Story",
+            }
+        )
+        result = _fields(json_str=payload)
+        assert result["project"] == {"key": "BAR"}
+        assert result["summary"] == "From JSON"
+        assert result["issuetype"] == {"name": "Story"}
+
+    def test_json_file(self, tmp_path):
+        f = tmp_path / "issue.json"
+        f.write_text(
+            json.dumps(
+                {
+                    "project": {"key": "BAZ"},
+                    "summary": "From file",
+                    "issuetype": {"name": "Task"},
+                }
+            )
+        )
+        result = _fields(json_file=f)
+        assert result["project"] == {"key": "BAZ"}
+        assert result["summary"] == "From file"
+
+    def test_json_preserves_nested_dicts(self):
+        payload = json.dumps(
+            {
+                "project": {"key": "FOO"},
+                "summary": "Nested",
+                "issuetype": {"name": "Epic"},
+            }
+        )
+        result = _fields(json_str=payload)
+        assert result["project"] == {"key": "FOO"}
+        assert result["issuetype"] == {"name": "Epic"}
+
+    def test_json_normalizes_shorthand_project(self):
+        payload = json.dumps({"project": "FOO", "summary": "S", "issuetype": "Bug"})
+        result = _fields(json_str=payload)
+        assert result["project"] == {"key": "FOO"}
+        assert result["issuetype"] == {"name": "Bug"}
+
+    def test_invalid_json_raises(self):
+        with pytest.raises(json.JSONDecodeError):
+            _fields(json_str="{bad json")
+
+
+class TestCreateIssueFieldsMutualExclusivity:
+    def test_json_and_project_raises(self):
+        with pytest.raises(click.UsageError, match="Cannot combine"):
+            _fields(json_str='{"project":"X","summary":"S"}', project="FOO")
+
+    def test_json_and_summary_raises(self):
+        with pytest.raises(click.UsageError, match="Cannot combine"):
+            _fields(json_str='{"project":"X","summary":"S"}', summary="Title")
+
+    def test_json_file_and_project_raises(self, tmp_path):
+        f = tmp_path / "issue.json"
+        f.write_text("{}")
+        with pytest.raises(click.UsageError, match="Cannot combine"):
+            _fields(json_file=f, project="FOO")
+
+
+class TestCreateIssueFieldsBase64:
+    def test_decodes_base64_description_from_args(self):
+        encoded = base64.b64encode(b"<p>Hello</p>").decode()
+        result = _fields(
+            project="FOO", summary="T", description=encoded, is_base64=True
+        )
+        assert result["description"] == "<p>Hello</p>"
+
+    def test_decodes_base64_description_from_json(self):
+        encoded = base64.b64encode(b"formatted text").decode()
+        payload = json.dumps(
+            {
+                "project": "FOO",
+                "summary": "S",
+                "issuetype": "Task",
+                "description": encoded,
+            }
+        )
+        result = _fields(json_str=payload, is_base64=True)
+        assert result["description"] == "formatted text"
+
+    def test_base64_flag_without_description_is_noop(self):
+        result = _fields(project="FOO", summary="T", is_base64=True)
+        assert "description" not in result
+
+    def test_invalid_base64_raises(self):
+        with pytest.raises(binascii.Error):
+            _fields(
+                project="FOO", summary="T", description="!!!invalid!!!", is_base64=True
+            )
+
+
+class TestCreateIssueFieldsExtraFields:
+    def test_merges_extra_fields(self):
+        result = _fields(
+            project="FOO",
+            summary="T",
+            extra_fields='{"customfield_10500": "EPIC-1", "labels": ["override"]}',
+        )
+        assert result["customfield_10500"] == "EPIC-1"
+        assert result["labels"] == ["override"]
+
+    def test_extra_fields_invalid_json_raises(self):
+        with pytest.raises(json.JSONDecodeError):
+            _fields(project="FOO", summary="T", extra_fields="{bad}")
