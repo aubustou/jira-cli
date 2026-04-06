@@ -1,19 +1,40 @@
 [build-system]
-requires = ["setuptools", "wheel"]
+requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[project]
+name = "jira-cli-top-moumoute"
+version = "0.9.2"
+description = "CLI to connect to JIRA"
+authors = [{ name = "aubustou", email = "survivalfr@yahoo.fr" }]
+requires-python = ">=3.13"
+dependencies = [
+    "click>=8.1",
+    "atlassian-python-api>=3.41",
+    "apischema>=0.18",
+]
+
+[project.urls]
+Homepage = "https://www.github.com/aubustou/jira-cli"
+
+[project.scripts]
+jira-cli = "jira_cli.main:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
 
 [tool.ruff]
 line-length = 88
-target-version = "py39"
+target-version = "py313"
 
 [tool.ruff.lint]
 select = [
     "E",   # pycodestyle errors
     "W",   # pycodestyle warnings
-    "F",   # pyflakes (replaces pylint --enable=E)
+    "F",   # pyflakes
     "I",   # isort
     "B",   # flake8-bugbear
-    "UP",  # pyupgrade
+    "UP",  # pyupgrade (flags old-style type annotations)
 ]
 ignore = []
 
