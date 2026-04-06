@@ -6,6 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "jira-cli-top-moumoute"
 version = "0.10.0"
 description = "CLI to connect to JIRA"
+readme = "README.md"
 authors = [{ name = "aubustou", email = "survivalfr@yahoo.fr" }]
 requires-python = ">=3.13"
 dependencies = [
