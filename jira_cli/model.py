@@ -1,6 +1,7 @@
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional
 
 from apischema import deserializer
 
@@ -13,7 +14,7 @@ class Sprint:
     state: str
     start_date: datetime
     goals: list[str] = field(default_factory=list)
-    completion_date: Optional[datetime] = None
+    completion_date: datetime | None = None
 
     number: int = field(init=False)
 
@@ -37,11 +38,11 @@ def from_sprint(content: dict) -> Sprint:
         project_id=content["originBoardId"],
         state=content["state"],
         start_date=datetime.strptime(content["startDate"], "%Y-%m-%dT%H:%M:%S.%fZ"),
-        completion_date=datetime.strptime(
-            content["completeDate"], "%Y-%m-%dT%H:%M:%S.%fZ"
-        )
-        if content["completeDate"]
-        else None,
+        completion_date=(
+            datetime.strptime(content["completeDate"], "%Y-%m-%dT%H:%M:%S.%fZ")
+            if content["completeDate"]
+            else None
+        ),
         goals=[x for x in content["goal"].splitlines() if x] if content["goal"] else [],
     )
 
@@ -58,17 +59,17 @@ class Issue:
     status: str
 
     creation_date: datetime
-    update_date: Optional[datetime] = None
-    resolution_date: Optional[datetime] = None
+    update_date: datetime | None = None
+    resolution_date: datetime | None = None
 
-    assignee: Optional[str] = None
-    sprint: Optional[str] = None
-    description: Optional[str] = None
-    resolution: Optional[str] = None
-    color_label: Optional[str] = None
+    assignee: str | None = None
+    sprint: str | None = None
+    description: str | None = None
+    resolution: str | None = None
+    color_label: str | None = None
     labels: list[str] = field(default_factory=list)
 
-    story_points: Optional[int] = None
+    story_points: int | None = None
 
     affect_versions: list[str] = field(default_factory=list)
     fix_versions: list[str] = field(default_factory=list)
@@ -105,17 +106,21 @@ def from_issue(content: dict) -> Issue:
         creation_date=content["fields"]["created"],
         update_date=content["fields"]["updated"],
         resolution_date=content["fields"]["resolutiondate"],
-        assignee=content["fields"]["assignee"]["displayName"]
-        if content["fields"]["assignee"]
-        else None,
+        assignee=(
+            content["fields"]["assignee"]["displayName"]
+            if content["fields"]["assignee"]
+            else None
+        ),
         sprint=sprint,
         description=content["fields"]["description"],
-        resolution=content["fields"]["resolution"]["name"]
-        if content["fields"]["resolution"]
-        else None,
-        color_label=content["fields"]["epic"]["name"]
-        if content["fields"].get("epic")
-        else None,
+        resolution=(
+            content["fields"]["resolution"]["name"]
+            if content["fields"]["resolution"]
+            else None
+        ),
+        color_label=(
+            content["fields"]["epic"]["name"] if content["fields"].get("epic") else None
+        ),
         labels=content["fields"]["labels"],
         story_points=content["fields"].get("customfield_10003"),
         affect_versions=get_versions(content["fields"]["versions"]),

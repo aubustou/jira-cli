@@ -1,8 +1,9 @@
+from __future__ import annotations
+
 import json
+from collections.abc import Callable, Iterator
 from functools import update_wrapper
 from pathlib import Path
-from pprint import pprint
-from typing import Callable, Dict, Iterator, List, Optional
 
 import atlassian
 import click
@@ -10,11 +11,11 @@ import urllib3
 from atlassian.confluence import Confluence
 from atlassian.jira import Jira
 
-urllib3.disable_warnings()
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 CONFIGURATION_FILE = Path.home() / ".config" / "jira-cli" / "config.json"
-JIRA_CONN: Optional[atlassian.Jira] = None
-CONFLUENCE_CONN: Optional[atlassian.Confluence] = None
+JIRA_CONN: atlassian.Jira | None = None
+CONFLUENCE_CONN: atlassian.Confluence | None = None
 
 
 class Colors:
@@ -163,7 +164,7 @@ def get_summary_from_comment(comment: str) -> str:
     show_default=True,
 )
 @processor
-def create_csv(issues: List[Dict], filename: Path):
+def create_csv(issues: list[dict], filename: Path):
     with filename.open("w", newline="\r\n") as file_:
         file_.write(";".join(["ticket", "title", "summary", "\r\n"]))
         for issue in issues:
@@ -196,12 +197,10 @@ def get_sprint(jira_conn: Jira, sprint: str, project: str) -> dict:
     ).get("id")
 
     return next(
-        (
-            x
-            for y in paginate(jira_conn.get_all_sprint, limit=50, board_id=board_id)
-            for x in y
-            if sprint in x["name"]
-        )
+        x
+        for y in paginate(jira_conn.get_all_sprint, limit=50, board_id=board_id)
+        for x in y
+        if sprint in x["name"]
     )
 
 
@@ -232,14 +231,14 @@ def command_read(
 
 def read(
     jira_conn: Jira,
-    issue_number: Optional[str] = None,
-    project: Optional[str] = None,
-    sprint: Optional[str] = None,
+    issue_number: str | None = None,
+    project: str | None = None,
+    sprint: str | None = None,
     limit: int = 10,
-    status: Optional[str] = None,
-    resolution: Optional[str] = None,
-) -> List[Dict]:
-    issues: List[Dict] = []
+    status: str | None = None,
+    resolution: str | None = None,
+) -> list[dict]:
+    issues: list[dict] = []
     if issue_number:
         issues = [jira_conn.issue(issue_number)]
     elif sprint and project:
@@ -273,7 +272,7 @@ def read(
 
 
 def display_issues(
-    issues: List[Dict], reduced: bool = False, comment_summary: bool = False
+    issues: list[dict], reduced: bool = False, comment_summary: bool = False
 ):
     first_issue = True
     for issue in reversed(issues):

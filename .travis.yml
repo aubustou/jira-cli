@@ -1,14 +1,13 @@
 language: python
 python:
-- '3.7'
-- '3.8'
-- '3.9'
+- '3.11'
+- '3.12'
+- '3.13'
 install:
-  - curl https://bootstrap.pypa.io/ez_setup.py -o - | python
-  - pip install pylint
+  - pip install ruff
   - pip install .
 script:
-  - pylint --disable=all --enable=E jira_cli/
+  - ruff check jira_cli/
 branches:
   only:
     - master
