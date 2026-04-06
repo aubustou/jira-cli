@@ -2,7 +2,7 @@
 
 [![PyPI version](https://badge.fury.io/py/jira-cli-top-moumoute.svg)](https://pypi.org/project/jira-cli-top-moumoute/)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
-[![Build Status](https://travis-ci.org/aubustou/jira-cli.svg?branch=master)](https://travis-ci.org/aubustou/jira-cli)
+[![CI](https://github.com/aubustou/jira-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/aubustou/jira-cli/actions/workflows/ci.yml)
 
 A command-line tool for querying and exporting JIRA issues. Wraps `atlassian-python-api` with a chainable interface — browse issues, filter by project/sprint/status, and export to CSV without writing custom scripts.
 
